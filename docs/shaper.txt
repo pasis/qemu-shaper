@@ -1,0 +1,10 @@
+Token Bucket Algorithm
+======================
+
+QemuShaper implements token bucket algorithm that is used for implementation
+of an actual network traffic shaper.
+
+QemuShaper has a bucket which is filled by tokens R times per second. User
+makes request to consume number of token coresponds to amount of data it
+operates with. On success user performs respective operation with data.
+Otherwise, user can cancel or defer operation.

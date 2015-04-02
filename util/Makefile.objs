@@ -19,3 +19,4 @@ util-obj-y += readline.o
 util-obj-y += rfifolock.o
 util-obj-y += rcu.o
 util-obj-y += stat.o
+util-obj-y += shaper.o
