@@ -1,0 +1,30 @@
+Statistics Collector
+====================
+
+QemuStat implements collector of numerical data with scale of 1 second.
+There two types of users:
+
+ - Writers collect data.
+ - Readers checkout data that was collected for the last few seconds.
+
+Maximum number of seconds the data must be available for reading is set during
+initialisation.
+Single user can have separated collectors for different sources of data. For
+example, network traffic and network packets. From other side, a data source
+can be collected in different collectors (e.g. network traffic in total and
+NIC-specific).
+
+Internals
+---------
+
+Collector implemented as a circular buffer, where every element correspond to a
+second.
+
+Statistics Logger
+=================
+
+QemuStatSched is a Reader of collectors. Its task is to make user-friendly
+output of collected data.
+
+Logger prints statistics per second with a fixed interval. Destination of the
+output is set during initialisation that can be any valid file descriptor.
