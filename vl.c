@@ -101,6 +101,7 @@ int main(int argc, char **argv)
 #include "fsdev/qemu-fsdev.h"
 #endif
 #include "sysemu/qtest.h"
+#include "qemu/stat.h"
 
 #include "disas/disas.h"
 
@@ -2767,6 +2768,7 @@ int main(int argc, char **argv, char **envp)
     uint64_t ram_slots = 0;
     FILE *vmstate_dump_file = NULL;
     Error *main_loop_err = NULL;
+    QemuStatSched *sched = qemu_stat_sched_default_get();
 
     qemu_init_cpu_loop();
     qemu_mutex_lock_iothread();
@@ -2826,6 +2828,8 @@ int main(int argc, char **argv, char **envp)
     bdrv_init_with_whitelist();
 
     autostart = 1;
+
+    qemu_stat_sched_init(sched, stdout, QEMU_STAT_INTERVAL);
 
     /* first pass of option parsing */
     optind = 1;
@@ -4359,7 +4363,9 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+    qemu_stat_sched_launch(sched);
     main_loop();
+    qemu_stat_sched_fini(sched);
     bdrv_close_all();
     pause_all_vcpus();
     res_free();

@@ -14,6 +14,7 @@
 #include "block/block_int.h"
 #include "sysemu/blockdev.h"
 #include "qapi-event.h"
+#include "qemu/stat.h"
 
 /* Number of coroutines to reserve per attached device model */
 #define COROUTINE_POOL_RESERVATION 64
@@ -29,6 +30,7 @@ struct BlockBackend {
     /* TODO change to DeviceState when all users are qdevified */
     const BlockDevOps *dev_ops;
     void *dev_opaque;
+    QemuStat iops;
 };
 
 typedef struct BlockBackendAIOCB {
@@ -57,6 +59,8 @@ static QTAILQ_HEAD(, BlockBackend) blk_backends =
 BlockBackend *blk_new(const char *name, Error **errp)
 {
     BlockBackend *blk;
+    QemuStatSched *sched;
+    char *st_name;
 
     assert(name && name[0]);
     if (!id_wellformed(name)) {
@@ -77,6 +81,11 @@ BlockBackend *blk_new(const char *name, Error **errp)
     blk = g_new0(BlockBackend, 1);
     blk->name = g_strdup(name);
     blk->refcnt = 1;
+    st_name = g_strdup_printf("%s:iops", name);
+    qemu_stat_init(&blk->iops, st_name, QEMU_STAT_INTERVAL * 2);
+    g_free(st_name);
+    sched = qemu_stat_sched_default_get();
+    qemu_stat_sched_add(sched, &blk->iops);
     QTAILQ_INSERT_TAIL(&blk_backends, blk, link);
     return blk;
 }
@@ -901,4 +910,9 @@ int blk_probe_blocksizes(BlockBackend *blk, BlockSizes *bsz)
 int blk_probe_geometry(BlockBackend *blk, HDGeometry *geo)
 {
     return bdrv_probe_geometry(blk->bs, geo);
+}
+
+QemuStat *blk_iops_get(BlockBackend *blk)
+{
+    return &blk->iops;
 }

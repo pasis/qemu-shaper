@@ -36,6 +36,7 @@
 #include "qmp-commands.h"
 #include "qemu/timer.h"
 #include "qapi-event.h"
+#include "qemu/stat.h"
 
 #ifdef CONFIG_BSD
 #include <sys/types.h>
@@ -3114,6 +3115,9 @@ static int coroutine_fn bdrv_aligned_preadv(BlockDriverState *bs,
         }
     }
 
+    if (bs->blk != NULL)
+        qemu_stat_accum(blk_iops_get(bs->blk), 1);
+
 out:
     return ret;
 }
@@ -3359,6 +3363,9 @@ static int coroutine_fn bdrv_aligned_pwritev(BlockDriverState *bs,
     if (ret >= 0) {
         bs->total_sectors = MAX(bs->total_sectors, sector_num + nb_sectors);
     }
+
+    if (bs->blk != NULL)
+        qemu_stat_accum(blk_iops_get(bs->blk), 1);
 
     return ret;
 }

@@ -2,6 +2,7 @@
 #define QEMU_NET_H
 
 #include "qemu/queue.h"
+#include "qemu/stat.h"
 #include "qemu-common.h"
 #include "qapi/qmp/qdict.h"
 #include "qemu/option.h"
@@ -95,6 +96,10 @@ typedef struct NICState {
     NICConf *conf;
     void *opaque;
     bool peer_deleted;
+    QemuStat bps_in;
+    QemuStat bps_out;
+    QemuStat pkt_in;
+    QemuStat pkt_out;
 } NICState;
 
 NetClientState *qemu_find_netdev(const char *id);

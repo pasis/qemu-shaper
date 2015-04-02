@@ -34,6 +34,7 @@
 #include "qemu-common.h"
 #include "qemu/sockets.h"
 #include "qemu/config-file.h"
+#include "qemu/stat.h"
 #include "qmp-commands.h"
 #include "hw/qdev.h"
 #include "qemu/iov.h"
@@ -244,6 +245,18 @@ NetClientState *qemu_new_net_client(NetClientInfo *info,
     return nc;
 }
 
+static int nic_stat_init(QemuStat *stat, const char *name, const char *sfx)
+{
+    char *st_name;
+    int rc;
+
+    st_name = g_strdup_printf("%s:%s", name, sfx);
+    rc = qemu_stat_init(stat, st_name, QEMU_STAT_INTERVAL * 2);
+    g_free(st_name);
+
+    return rc;
+}
+
 NICState *qemu_new_nic(NetClientInfo *info,
                        NICConf *conf,
                        const char *model,
@@ -252,7 +265,10 @@ NICState *qemu_new_nic(NetClientInfo *info,
 {
     NetClientState **peers = conf->peers.ncs;
     NICState *nic;
+    QemuStatSched *sched;
+    char *st_name;
     int i, queues = MAX(1, conf->peers.queues);
+    int rc;
 
     assert(info->type == NET_CLIENT_OPTIONS_KIND_NIC);
     assert(info->size >= sizeof(NICState));
@@ -267,6 +283,19 @@ NICState *qemu_new_nic(NetClientInfo *info,
                               NULL);
         nic->ncs[i].queue_index = i;
     }
+
+    st_name = nic->ncs[0].name;
+    rc = nic_stat_init(&nic->bps_in, st_name, "bps:in")
+      ?: nic_stat_init(&nic->bps_out, st_name, "bps:out")
+      ?: nic_stat_init(&nic->pkt_in, st_name, "pkt:in")
+      ?: nic_stat_init(&nic->pkt_out, st_name, "pkt:out");
+    /* qemu doesn't make allocation errors handling */
+    assert(rc == 0);
+    sched = qemu_stat_sched_default_get();
+    qemu_stat_sched_add(sched, &nic->pkt_out);
+    qemu_stat_sched_add(sched, &nic->pkt_in);
+    qemu_stat_sched_add(sched, &nic->bps_out);
+    qemu_stat_sched_add(sched, &nic->bps_in);
 
     return nic;
 }
@@ -381,6 +410,11 @@ void qemu_del_nic(NICState *nic)
         qemu_free_net_client(nc);
     }
 
+    qemu_stat_fini(&nic->bps_in);
+    qemu_stat_fini(&nic->bps_out);
+    qemu_stat_fini(&nic->pkt_in);
+    qemu_stat_fini(&nic->pkt_out);
+
     g_free(nic);
 }
 
@@ -480,6 +514,7 @@ ssize_t qemu_deliver_packet(NetClientState *sender,
                             void *opaque)
 {
     NetClientState *nc = opaque;
+    NICState *nic;
     ssize_t ret;
 
     if (nc->link_down) {
@@ -488,6 +523,12 @@ ssize_t qemu_deliver_packet(NetClientState *sender,
 
     if (nc->receive_disabled) {
         return 0;
+    }
+
+    if (nc->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
+        nic  = qemu_get_nic(nc);
+        qemu_stat_accum(&nic->bps_in, size * 8);
+        qemu_stat_accum(&nic->pkt_in, 1);
     }
 
     if (flags & QEMU_NET_PACKET_FLAG_RAW && nc->info->receive_raw) {
@@ -544,6 +585,7 @@ static ssize_t qemu_send_packet_async_with_flags(NetClientState *sender,
                                                  NetPacketSent *sent_cb)
 {
     NetQueue *queue;
+    NICState *nic;
 
 #ifdef DEBUG_NET
     printf("qemu_send_packet_async:\n");
@@ -552,6 +594,12 @@ static ssize_t qemu_send_packet_async_with_flags(NetClientState *sender,
 
     if (sender->link_down || !sender->peer) {
         return size;
+    }
+
+    if (sender->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
+        nic = qemu_get_nic(sender);
+        qemu_stat_accum(&nic->bps_out, size * 8);
+        qemu_stat_accum(&nic->pkt_out, 1);
     }
 
     queue = sender->peer->incoming_queue;
@@ -596,6 +644,8 @@ ssize_t qemu_deliver_packet_iov(NetClientState *sender,
                                 void *opaque)
 {
     NetClientState *nc = opaque;
+    NICState *nic;
+    size_t size;
     int ret;
 
     if (nc->link_down) {
@@ -604,6 +654,13 @@ ssize_t qemu_deliver_packet_iov(NetClientState *sender,
 
     if (nc->receive_disabled) {
         return 0;
+    }
+
+    if (nc->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
+        nic = qemu_get_nic(nc);
+        size = iov_size(iov, iovcnt);
+        qemu_stat_accum(&nic->bps_in, size * 8);
+        qemu_stat_accum(&nic->pkt_in, 1);
     }
 
     if (nc->info->receive_iov) {
@@ -624,9 +681,18 @@ ssize_t qemu_sendv_packet_async(NetClientState *sender,
                                 NetPacketSent *sent_cb)
 {
     NetQueue *queue;
+    NICState *nic;
+    size_t size;
 
     if (sender->link_down || !sender->peer) {
         return iov_size(iov, iovcnt);
+    }
+
+    if (sender->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
+        nic = qemu_get_nic(sender);
+        size = iov_size(iov, iovcnt);
+        qemu_stat_accum(&nic->bps_out, size * 8);
+        qemu_stat_accum(&nic->pkt_out, 1);
     }
 
     queue = sender->peer->incoming_queue;

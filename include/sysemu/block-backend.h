@@ -25,6 +25,8 @@
  */
 #include "block/block.h"
 
+#include "qemu/stat.h"
+
 /* Callbacks for block device models */
 typedef struct BlockDevOps {
     /*
@@ -166,5 +168,6 @@ int blk_save_vmstate(BlockBackend *blk, const uint8_t *buf,
 int blk_load_vmstate(BlockBackend *blk, uint8_t *buf, int64_t pos, int size);
 int blk_probe_blocksizes(BlockBackend *blk, BlockSizes *bsz);
 int blk_probe_geometry(BlockBackend *blk, HDGeometry *geo);
+QemuStat *blk_iops_get(BlockBackend *blk);
 
 #endif
