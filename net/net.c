@@ -34,6 +34,7 @@
 #include "qemu-common.h"
 #include "qemu/sockets.h"
 #include "qemu/config-file.h"
+#include "qemu/shaper.h"
 #include "qemu/stat.h"
 #include "qmp-commands.h"
 #include "hw/qdev.h"
@@ -284,6 +285,8 @@ NICState *qemu_new_nic(NetClientInfo *info,
         nic->ncs[i].queue_index = i;
     }
 
+    qemu_shaper_init(&nic->shaper_in, QEMU_SHAPER_R, QEMU_SHAPER_LIMIT);
+    qemu_shaper_init(&nic->shaper_out, QEMU_SHAPER_R, QEMU_SHAPER_LIMIT);
     st_name = nic->ncs[0].name;
     rc = nic_stat_init(&nic->bps_in, st_name, "bps:in")
       ?: nic_stat_init(&nic->bps_out, st_name, "bps:out")
@@ -414,6 +417,8 @@ void qemu_del_nic(NICState *nic)
     qemu_stat_fini(&nic->bps_out);
     qemu_stat_fini(&nic->pkt_in);
     qemu_stat_fini(&nic->pkt_out);
+    qemu_shaper_fini(&nic->shaper_in);
+    qemu_shaper_fini(&nic->shaper_out);
 
     g_free(nic);
 }
@@ -516,6 +521,7 @@ ssize_t qemu_deliver_packet(NetClientState *sender,
     NetClientState *nc = opaque;
     NICState *nic;
     ssize_t ret;
+    bool pass;
 
     if (nc->link_down) {
         return size;
@@ -527,6 +533,9 @@ ssize_t qemu_deliver_packet(NetClientState *sender,
 
     if (nc->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
         nic  = qemu_get_nic(nc);
+        pass = qemu_shaper_request(&nic->shaper_in, size * 8);
+        if (!pass)
+            return size;
         qemu_stat_accum(&nic->bps_in, size * 8);
         qemu_stat_accum(&nic->pkt_in, 1);
     }
@@ -586,6 +595,7 @@ static ssize_t qemu_send_packet_async_with_flags(NetClientState *sender,
 {
     NetQueue *queue;
     NICState *nic;
+    bool pass;
 
 #ifdef DEBUG_NET
     printf("qemu_send_packet_async:\n");
@@ -598,6 +608,9 @@ static ssize_t qemu_send_packet_async_with_flags(NetClientState *sender,
 
     if (sender->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
         nic = qemu_get_nic(sender);
+        pass = qemu_shaper_request(&nic->shaper_out, size * 8);
+        if (!pass)
+            return size;
         qemu_stat_accum(&nic->bps_out, size * 8);
         qemu_stat_accum(&nic->pkt_out, 1);
     }
@@ -646,6 +659,7 @@ ssize_t qemu_deliver_packet_iov(NetClientState *sender,
     NetClientState *nc = opaque;
     NICState *nic;
     size_t size;
+    bool pass;
     int ret;
 
     if (nc->link_down) {
@@ -659,6 +673,9 @@ ssize_t qemu_deliver_packet_iov(NetClientState *sender,
     if (nc->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
         nic = qemu_get_nic(nc);
         size = iov_size(iov, iovcnt);
+        pass = qemu_shaper_request(&nic->shaper_in, size * 8);
+        if (!pass)
+            return size;
         qemu_stat_accum(&nic->bps_in, size * 8);
         qemu_stat_accum(&nic->pkt_in, 1);
     }
@@ -683,6 +700,7 @@ ssize_t qemu_sendv_packet_async(NetClientState *sender,
     NetQueue *queue;
     NICState *nic;
     size_t size;
+    bool pass;
 
     if (sender->link_down || !sender->peer) {
         return iov_size(iov, iovcnt);
@@ -691,6 +709,9 @@ ssize_t qemu_sendv_packet_async(NetClientState *sender,
     if (sender->info->type == NET_CLIENT_OPTIONS_KIND_NIC) {
         nic = qemu_get_nic(sender);
         size = iov_size(iov, iovcnt);
+        pass = qemu_shaper_request(&nic->shaper_in, size * 8);
+        if (!pass)
+            return size;
         qemu_stat_accum(&nic->bps_out, size * 8);
         qemu_stat_accum(&nic->pkt_out, 1);
     }

@@ -2,6 +2,7 @@
 #define QEMU_NET_H
 
 #include "qemu/queue.h"
+#include "qemu/shaper.h"
 #include "qemu/stat.h"
 #include "qemu-common.h"
 #include "qapi/qmp/qdict.h"
@@ -96,6 +97,8 @@ typedef struct NICState {
     NICConf *conf;
     void *opaque;
     bool peer_deleted;
+    QemuShaper shaper_in;
+    QemuShaper shaper_out;
     QemuStat bps_in;
     QemuStat bps_out;
     QemuStat pkt_in;
